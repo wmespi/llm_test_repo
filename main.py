@@ -1,57 +1,58 @@
-from typing import Annotated
+from transformers import AutoTokenizer, AutoModelForCausalLM, Trainer, TrainingArguments
+from datasets import load_dataset
 
-from typing_extensions import TypedDict
+# Load a prompt-response dataset
+print("Loading prompt-response dataset...")
+dataset = load_dataset("databricks/databricks-dolly-15k", split="train[:2000]")  # Small subset for demo
+print(dataset)
 
-from langgraph.graph import StateGraph, START, END
-from langgraph.graph.message import add_messages
+# Load tokenizer and model
+model_name = "gpt2"
+print(f"Loading model and tokenizer for {model_name}...")
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+model = AutoModelForCausalLM.from_pretrained(model_name)
 
+# GPT-2 doesn't have a pad token by default
+tokenizer.pad_token = tokenizer.eos_token
+model.config.pad_token_id = tokenizer.eos_token_id
 
-class State(TypedDict):
-    # Messages have the type "list". The `add_messages` function
-    # in the annotation defines how this state key should be updated
-    # (in this case, it appends messages to the list, rather than overwriting them)
-    messages: Annotated[list, add_messages]
+# Tokenize the dataset: concatenate instruction and response
+def preprocess(examples):
+    texts = [
+        f"### Instruction:\n{inst}\n### Response:\n{resp}"
+        for inst, resp in zip(examples["instruction"], examples["response"])
+    ]
+    return tokenizer(
+        texts,
+        truncation=True,
+        padding="max_length",
+        max_length=128,
+    )
 
+tokenized_dataset = dataset.map(preprocess, batched=True)
 
-graph_builder = StateGraph(State)
+# Training arguments
+print("Setting up training arguments...")
+training_args = TrainingArguments(
+    output_dir="./results",
+    num_train_epochs=1,
+    per_device_train_batch_size=8,
+    logging_steps=10,
+    save_steps=50,
+)
 
-from transformers import pipeline
+# Trainer
+trainer = Trainer(
+    model=model,
+    args=training_args,
+    train_dataset=tokenized_dataset,
+)
 
-messages = [
-    {"role": "user", "content": "Who are you?"},
-]
-llm = pipeline("text-generation", model="meta-llama/Meta-Llama-3.1-8B-Instruct")
-llm(messages) 
+# Fine-tune
+print("Starting training...")
+trainer.train()
 
-
-def chatbot(state: State):
-    return {"messages": [llm(state["messages"])]}
-
-
-# The first argument is the unique node name
-# The second argument is the function or object that will be called whenever
-# the node is used.
-graph_builder.add_node("chatbot", chatbot)
-
-graph_builder.add_edge(START, "chatbot")
-
-graph_builder.add_edge("chatbot", END)
-
-graph = graph_builder.compile()
-
-from IPython.display import Image, display
-
-try:
-    display(Image(graph.get_graph().draw_mermaid_png()))
-except Exception:
-    # This requires some extra dependencies and is optional
-    pass
-
-while True:
-    user_input = input("User: ")
-    if user_input.lower() in ["quit", "exit", "q"]:
-        print("Goodbye!")
-        break
-    for event in graph.stream({"messages": ("user", user_input)}):
-        for value in event.values():
-            print("Assistant:", value["messages"][-1].content)
+# Save model and tokenizer
+print("Saving model and tokenizer...")
+model.save_pretrained("./finetuned_model")
+tokenizer.save_pretrained("./finetuned_tokenizer")
