@@ -9,12 +9,13 @@ torch_device = "cpu"
 # Load a prompt-response dataset
 print("Loading prompt-response dataset...")
 dataset = load_dataset("databricks/databricks-dolly-15k", split="train[:2000]")  # Small subset for demo
-print(dataset)
+print("First Prompt:", dataset[0]["instruction"])
+print("First Response:", dataset[0]["response"])
 
 # Load tokenizer and model
 model_name = os.getenv("ORIGINAL_MODEL", "google/gemma-3-270m")
 print(f"Loading model and tokenizer for {model_name}...")
-tokenizer = AutoTokenizer.from_pretrained(model_name)
+tokenizer = AutoTokenizer.from_pretrained(model_name, attn_implementation='eager')
 model = AutoModelForCausalLM.from_pretrained(model_name)
 
 # GPT-2 doesn't have a pad token by default
@@ -24,7 +25,7 @@ model.config.pad_token_id = tokenizer.eos_token_id
 # Tokenize the dataset: concatenate instruction and response
 def preprocess(examples):
     texts = [
-        f"### Instruction:\n{inst}\n### Response:\n{resp}"
+        f"### Instruction:\n\n{inst}\n\n### Response:\n\n{resp}"
         for inst, resp in zip(examples["instruction"], examples["response"])
     ]
     tokenized = tokenizer(
