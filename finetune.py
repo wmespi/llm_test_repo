@@ -1,13 +1,18 @@
 from transformers import AutoTokenizer, AutoModelForCausalLM, Trainer, TrainingArguments
 from datasets import load_dataset
 
+import torch
+import os
+
+torch_device = "cpu"
+
 # Load a prompt-response dataset
 print("Loading prompt-response dataset...")
 dataset = load_dataset("databricks/databricks-dolly-15k", split="train[:2000]")  # Small subset for demo
 print(dataset)
 
 # Load tokenizer and model
-model_name = "gpt2"
+model_name = os.getenv("ORIGINAL_MODEL", "google/gemma-3-270m")
 print(f"Loading model and tokenizer for {model_name}...")
 tokenizer = AutoTokenizer.from_pretrained(model_name)
 model = AutoModelForCausalLM.from_pretrained(model_name)
@@ -22,12 +27,15 @@ def preprocess(examples):
         f"### Instruction:\n{inst}\n### Response:\n{resp}"
         for inst, resp in zip(examples["instruction"], examples["response"])
     ]
-    return tokenizer(
+    tokenized = tokenizer(
         texts,
         truncation=True,
         padding="max_length",
         max_length=128,
     )
+    # Add labels for causal LM (labels = input_ids)
+    tokenized["labels"] = tokenized["input_ids"].copy()
+    return tokenized
 
 tokenized_dataset = dataset.map(preprocess, batched=True)
 

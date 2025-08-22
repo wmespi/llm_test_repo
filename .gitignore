@@ -1,3 +1,8 @@
+# fine tuned models
+finetuned_model/
+finetuned_tokenizer/
+results/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
